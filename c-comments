@@ -1,0 +1,68 @@
+#!/usr/bin/env perl
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# SPDX-License-Identifier: curl
+
+# Output all the C comments and double-quoted strings in the given source
+# files. All other contents should be blanked out. Output the text at the same
+# horizontal position as in the original file.
+
+sub quotable {
+    my ($c) = @_;
+    if(/(.*?)\"(.*?)\"/) {
+        my $plen = length($1);
+        print " " x $plen;
+        print "\"$2\"\n";
+    }
+    else {
+        print "\n";
+    }
+}
+
+sub strip {
+    my ($f) = @_;
+    my $c = 0;
+    open(F, "<$f");
+    while(<F>) {
+        my $l = $_;
+        if(/^\#/) {
+            # ignore preprocessor lines
+            print "\n";
+        }
+        elsif($c) {
+            if(/^(.*)\*\/(.*)/) {
+                # comment ends here
+                $c = 0;
+                print "$1";
+                quotable($l);
+            }
+            else {
+                print "$_";
+            }
+        }
+        elsif(/^(.*)\/\*(.*)/) {
+            # comment start here
+            my $plen = length($1) + 2; # add two for the /*
+            my $r = $2;
+            if($r =~ /(.*?)\*\//) {
+                # it also ended
+                print " " x $plen;
+                print "$1\n";
+            }
+            else {
+                # comment continues from here
+                $c = 1;
+                print " " x $plen;
+                print "$r\n";
+            }
+        }
+        else {
+            quotable($l);
+        }
+    }
+    close(F);
+}
+
+for my $f (@ARGV) {
+    strip($f);
+}
