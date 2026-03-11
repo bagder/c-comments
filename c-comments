@@ -6,10 +6,13 @@
 # Output all the C comments and double-quoted strings in the given source
 # files. All other contents should be blanked out. Output the text at the same
 # horizontal position as in the original file.
+#
+# Ignores strings for the preprocessor.
+#
 
 sub quotable {
-    my ($c) = @_;
-    if(/(.*?)\"(.*?)\"/) {
+    my ($c, $p) = @_;
+    if(/(.*?)\"(.*?)\"/ && !$p) {
         my $plen = length($1);
         print " " x $plen;
         print "\"$2\"\n";
@@ -22,19 +25,23 @@ sub quotable {
 sub strip {
     my ($f) = @_;
     my $c = 0;
+    my $p = 0;
     open(F, "<$f");
     while(<F>) {
         my $l = $_;
-        if(/^\#/) {
+        if(!$p && /^\#(.*)$/) {
             # ignore preprocessor lines
-            print "\n";
+            if($1 =~ /\\$/) {
+                # this continues on the next line
+                $p = 1;
+            }
         }
-        elsif($c) {
+        if($c) {
             if(/^(.*)\*\/(.*)/) {
                 # comment ends here
                 $c = 0;
                 print "$1";
-                quotable($l);
+                quotable($l, $p);
             }
             else {
                 print "$_";
@@ -57,7 +64,17 @@ sub strip {
             }
         }
         else {
-            quotable($l);
+            quotable($l, $p);
+        }
+        if($p) {
+            # a continued preprocessor lines
+            if($l =~ /\\$/) {
+                # this continues on the next line
+                $p = 1;
+            }
+            else {
+                $p = 0; # the last preprocessor line
+            }
         }
     }
     close(F);
