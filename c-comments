@@ -9,20 +9,6 @@
 #
 # Ignores strings for the preprocessor.
 #
-
-
-sub quotable {
-    my ($c, $p) = @_;
-    if(/(.*?)\"(.*?)\"/ && !$p) {
-        my $plen = length($1);
-        print " " x $plen;
-        print "\"$2\"\n";
-    }
-    else {
-        print "\n";
-    }
-}
-
 ## States
 #
 # 0 - default, initial state
