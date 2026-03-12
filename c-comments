@@ -10,6 +10,7 @@
 # Ignores strings for the preprocessor.
 #
 
+
 sub quotable {
     my ($c, $p) = @_;
     if(/(.*?)\"(.*?)\"/ && !$p) {
@@ -22,60 +23,138 @@ sub quotable {
     }
 }
 
+## States
+#
+# 0 - default, initial state
+# 1 - there was a slash
+# 2 - quoted string
+# 3 - // comment
+# 4 - /* comment
+# 5 - asterisk found within a /* comment
+# 6 - #include line
+# 7 - backslash in a string
+#
+## Flags
+#
+# 1 - include preprocessor line, ignore strings
+
+sub line {
+    my ($col, $state, $flags, $l) = @_;
+    my $line;
+
+    if(($state == 0) && ($l =~ /^ *\# *include/)) {
+        # preprocessor include line
+        $flags |= 1;
+    }
+    else {
+        # not preprocessor
+        $flags &= ~1;
+    }
+
+    if($state == 3) {
+        # // ended on the prev line, go back to init
+        $state = 0;
+    }
+
+    my @c = split(//, $l);
+
+    # state machine this line
+    for my $c (@c) {
+        if($state == 1) {
+            # we had a slash
+            if($c eq "/") {
+                # // confirmed, the rest of the line is a comment
+                $line .= "//";
+                $state = 3;
+            }
+            elsif($c eq "*") {
+                # /* confirmed
+                $state = 4;
+                $line .= "/*";
+            }
+            else {
+                # back to normal
+                $line .= "  ";
+                $state = 0;
+            }
+        }
+        elsif($state == 2) {
+            # a string
+            if($c eq "\\") {
+                $line .= "\\";
+                $state = 7;
+            }
+            elsif($c eq "\"") {
+                # end of the string
+                $line .= "\"";
+                $state = 0;
+            }
+            else {
+                $line .= $c;
+            }
+        }
+        elsif($state == 3) {
+            # a // comment
+            $line .= $c;
+        }
+        elsif($state == 4) {
+            # an onging /* comment
+            if($c eq "*") {
+                # could a comment close
+                $state = 5;
+            }
+            else {
+                $line .= $c;
+            }
+        }
+        elsif($state == 5) {
+            if($c eq "/") {
+                # a /* */ comment ended here */
+                $line .= "*/";
+                $state = 0;
+            }
+            else {
+                # the /* comment continues
+                $line .= "*$c";
+                $state = 4;
+            }
+        }
+        elsif($state == 7) {
+            # the prev was a backslash in a string
+            $line .= $c;
+            # switch back to normal string
+            $state = 2;
+        }
+        else {
+            if($c eq "/") {
+                $state = 1; # got a slash
+            }
+            elsif(($c eq "\"") && !($flags & 1)) {
+                # start of a string, not within a preprocessor line
+                $line .= "\"";
+                $state = 2;
+            }
+            elsif($c eq "\n") {
+                $line .= "\n";
+            }
+            else {
+                $line .= " ";
+            }
+        }
+    }
+    return $state, $flags, $line;
+}
+
+
 sub strip {
     my ($f) = @_;
-    my $c = 0;
-    my $p = 0;
+    my $state = 0;
+    my $flags = 0;
     open(F, "<$f");
     while(<F>) {
         my $l = $_;
-        if(!$p && /^\#(.*)$/) {
-            # ignore preprocessor lines
-            if($1 =~ /\\$/) {
-                # this continues on the next line
-                $p = 1;
-            }
-        }
-        if($c) {
-            if(/^(.*)\*\/(.*)/) {
-                # comment ends here
-                $c = 0;
-                print "$1";
-                quotable($l, $p);
-            }
-            else {
-                print "$_";
-            }
-        }
-        elsif(/^(.*)\/\*(.*)/) {
-            # comment start here
-            my $plen = length($1) + 2; # add two for the /*
-            my $r = $2;
-            if($r =~ /(.*?)\*\//) {
-                # it also ended
-                print " " x $plen;
-                print "$1\n";
-            }
-            else {
-                # comment continues from here
-                $c = 1;
-                print " " x $plen;
-                print "$r\n";
-            }
-        }
-        else {
-            quotable($l, $p);
-        }
-        if($p) {
-            # a continued preprocessor lines
-            if($l =~ /\\$/) {
-                # this continues on the next line
-                $p = 1;
-            }
-            else {
-                $p = 0; # the last preprocessor line
-            }
-        }
+        ($state, $flags, $line) = line(0, $state, $flags, $l);
+        print "$line";
     }
     close(F);
 }
